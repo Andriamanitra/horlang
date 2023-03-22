@@ -5,7 +5,7 @@ Demo on asciinema: https://asciinema.org/a/zaZU1o3Z5joZHjvA6SQUl4Gsc
 
 
 ## Introduction
-* The instruction pointer consists of two special registers R (row) and C (column). After each non-jump instruction execution moves one column to the right.
+* The instruction pointer consists of two special registers R (row) and C (column). After each non-jump instruction execution moves one column to the right. The program terminates when instruction pointer moves outside of the file.
 * Values of R and C registers can be modified which causes the execution to move to the specific location.
 * There are two general use registers A and B that may be used.
 * For storing more values there is a stack (max size = 65535).
