@@ -73,6 +73,11 @@ class ProgramState(T)
     @r -= 1
   end
 
+  def jump_to(row, col)
+    @r = row
+    @c = col
+  end
+
   def clear_stack
     @stack.clear
   end
@@ -101,7 +106,7 @@ end
 
 class Interpreter
   @@cmds = Hash(UInt8, StateChange).new
-  @@nostep_cmds : Set(UInt8) = "RCUuDdSs".bytes.map(&.to_u8).to_set
+  @@nostep_cmds : Set(UInt8) = "RCUuDdJj".bytes.map(&.to_u8).to_set
   @code : Array(String)
   @bytes : Array(Bytes)
   @state : State
@@ -190,39 +195,42 @@ class Interpreter
     @@cmds[v.ord.to_u8] = block
   end
 
-  cmd('A') { |state| state.a = state.pop }                                 # set A
-  cmd('a') { |state| state.push(state.a) }                                 # push A
-  cmd('B') { |state| state.b = state.pop }                                 # set B
-  cmd('b') { |state| state.push(state.b) }                                 # push B
-  cmd('R') { |state| state.r = state.pop }                                 # set ROW
-  cmd('r') { |state| state.push(state.r) }                                 # push ROW
-  cmd('C') { |state| state.c = state.pop }                                 # set COL
-  cmd('c') { |state| state.push(state.c) }                                 # push COL
-  cmd('?') { |state| state.truthy = (state.pop != 0) }                     # set TRUTHY
-  cmd('z') { |state| state.clear_stack }                                   # clear stack
-  cmd('U') { |state| state.step_up }                                       # UP
-  cmd('D') { |state| state.step_down }                                     # DOWN
-  cmd('u') { |state| state.true? ? state.step_up : state.step_right }      # UP (conditional)
-  cmd('d') { |state| state.true? ? state.step_down : state.step_right }    # DOWN (conditional)
-  cmd('x') { |state| abort if state.true? }                                # exit
-  cmd('p') { |state| state.stack_str(state.output) }                       # print entire stack as string
-  cmd('P') { |state| state.output << '[' << state.stack.join(' ') << ']' } # print entire stack as numbers
-  cmd('#') { |state| state.output << state.topmost }                       # print last as number
-  cmd('.') { |state| state.output << state.topmost.chr }                   # print last as char
-  cmd(',') { |state| state.output << ' ' }                                 # print a space
-  cmd(';') { |state| state.output << '\n' }                                # print a newline
-  cmd('+') { |state| state.push(state.pop &+ state.pop) }                  # ADD (wrapping)
-  cmd('-') { |state| state.push(state.pop &- state.pop) }                  # SUB (wrapping)
-  cmd('*') { |state| state.push(state.pop &* state.pop) }                  # MUL (wrapping)
-  cmd('/') { |state| state.push(state.pop // state.pop) }                  # DIV
-  cmd('%') { |state| state.push(state.pop % state.pop) }                   # MOD
-  cmd('=') { |state| state.push((state.pop == state.pop).to_u16) }         # EQUALS
-  cmd('<') { |state| state.push((state.pop < state.pop).to_u16) }          # LESS THAN
-  cmd('>') { |state| state.push((state.pop > state.pop).to_u16) }          # GREATER THAN
-  cmd('F') { |state| state.open_file }                                     # OPEN FILE
-  cmd('f') { |state| state.close_file }                                    # CLOSE FILE
-  cmd('g') { |state| state.read_byte }                                     # GETCHAR
-  (0_u16..9_u16).each do |num|
-    cmd(num.to_s[0]) { |state| state.push(num) }
+  cmd('A') { |st| st.a = st.pop }                                         # set A
+  cmd('a') { |st| st.push(st.a) }                                         # push A
+  cmd('B') { |st| st.b = st.pop }                                         # set B
+  cmd('b') { |st| st.push(st.b) }                                         # push B
+  cmd('R') { |st| st.r = st.pop }                                         # set ROW
+  cmd('r') { |st| st.push(st.r) }                                         # push ROW
+  cmd('C') { |st| st.c = st.pop }                                         # set COL
+  cmd('c') { |st| st.push(st.c) }                                         # push COL
+  cmd('J') { |st| st.jump_to(st.pop, st.pop) }                            # JUMP
+  cmd('j') { |st| st.true? ? st.jump_to(st.pop, st.pop) : st.step_right } # JUMP (conditional)
+  cmd('?') { |st| st.truthy = (st.pop != 0) }                             # set TRUTHY
+  cmd('z') { |st| st.clear_stack }                                        # clear stack
+  cmd('U') { |st| st.step_up }                                            # UP
+  cmd('D') { |st| st.step_down }                                          # DOWN
+  cmd('u') { |st| st.true? ? st.step_up : st.step_right }                 # UP (conditional)
+  cmd('d') { |st| st.true? ? st.step_down : st.step_right }               # DOWN (conditional)
+  cmd('x') { |st| abort if st.true? }                                     # exit
+  cmd('p') { |st| st.stack_str(st.output) }                               # print entire stack as string
+  cmd('P') { |st| st.output << '[' << st.stack.join(' ') << ']' }         # print entire stack as numbers
+  cmd('#') { |st| st.output << st.topmost }                               # print last as number
+  cmd('.') { |st| st.output << st.topmost.chr }                           # print last as char
+  cmd(',') { |st| st.output << ' ' }                                      # print a space
+  cmd(';') { |st| st.output << '\n' }                                     # print a newline
+  cmd('+') { |st| st.push(st.pop &+ st.pop) }                             # ADD (wrapping)
+  cmd('-') { |st| st.push(st.pop &- st.pop) }                             # SUB (wrapping)
+  cmd('*') { |st| st.push(st.pop &* st.pop) }                             # MUL (wrapping)
+  cmd('/') { |st| st.push(st.pop // st.pop) }                             # DIV
+  cmd('%') { |st| st.push(st.pop % st.pop) }                              # MOD
+  cmd('=') { |st| st.push((st.pop == st.pop).to_u16) }                    # EQUALS
+  cmd('<') { |st| st.push((st.pop < st.pop).to_u16) }                     # LESS THAN
+  cmd('>') { |st| st.push((st.pop > st.pop).to_u16) }                     # GREATER THAN
+  cmd('F') { |st| st.open_file }                                          # OPEN FILE
+  cmd('f') { |st| st.close_file }                                         # CLOSE FILE
+  cmd('g') { |st| st.read_byte }                                          # GETCHAR
+  ('0'..'9').each do |num|
+    val = num.to_u8
+    cmd(num) { |state| state.push(val) }
   end
 end

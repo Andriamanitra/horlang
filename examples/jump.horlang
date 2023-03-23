@@ -1,0 +1,4 @@
+2J        " jump to R=2 (3rd line)
+
+0123J     " jump to R=3, C=2 (4th line, character 3)
+45678P;x  " print stack & exit
