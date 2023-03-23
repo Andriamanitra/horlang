@@ -70,6 +70,7 @@ class ProgramState(T)
   end
 
   def step_up
+    exit(0) if @r == 0
     @r -= 1
   end
 
@@ -104,6 +105,13 @@ enum InterpreterMode
   Number
 end
 
+class UnknownInstruction < Exception
+  property instruction : UInt8
+
+  def initialize(@instruction)
+  end
+end
+
 class Interpreter
   @@cmds = Hash(UInt8, StateChange).new
   @@nostep_cmds : Set(UInt8) = "RCUuDdJj".bytes.map(&.to_u8).to_set
@@ -111,18 +119,20 @@ class Interpreter
   @bytes : Array(Bytes)
   @state : State
   @mode : InterpreterMode
+  @show_error_location : Bool
 
-  def initialize(code : String)
+  def initialize(code : String, show_error_location : Bool = false)
     # TODO: handle !#
     @code = code.lines
     @bytes = @code.map(&.to_slice)
     @state = State.new
     @mode = InterpreterMode::Normal
+    @show_error_location = show_error_location
   end
 
   def step
     instruction = @bytes.dig?(@state.r, @state.c)
-    abort if instruction.nil?
+    exit(0) if instruction.nil?
     if instruction == '"'.ord.to_u8
       toggle_mode(InterpreterMode::Literal)
     elsif @mode == InterpreterMode::Literal
@@ -132,13 +142,15 @@ class Interpreter
     elsif instruction == ' '.ord.to_u8 # spaces are ignored
       nil
     else
-      begin
-        @@cmds[instruction].call(@state)
-      rescue KeyError
-        error "Invalid instruction '#{instruction.chr}'"
-      end
+      getcmd(instruction).call(@state)
     end
     @state.step_right unless @mode == InterpreterMode::Normal && instruction.in?(@@nostep_cmds)
+  rescue exc : UnknownInstruction
+    error("Invalid instruction '#{exc.instruction.chr}'")
+  rescue exc : File::NotFoundError
+    error("File '#{exc.file}' not found")
+  rescue exc
+    error(exc.to_s)
   end
 
   def debug
@@ -148,15 +160,9 @@ class Interpreter
       print "\033c" # clear terminal
       @state.debug(STDOUT)
       puts "code:".colorize(:dark_gray)
-      @code.each_with_index do |line, idx|
-        if idx == @state.r
-          print line[0, @state.c], line[@state.c].colorize.back(:magenta), line[@state.c + 1..]
-        else
-          print line
-        end
-        puts
-      end
-      puts "\noutput=\"#{output}\""
+      puts highlight_current(:black, :magenta)
+      puts "\noutput:".colorize(:dark_gray)
+      puts "#{output}"
       gets
       step
     end
@@ -164,24 +170,37 @@ class Interpreter
 
   def run
     loop { step }
-  rescue
-    abort
+  end
+
+  def highlight_current(fg, bg)
+    io = IO::Memory.new
+    @code.each_with_index do |line, idx|
+      if idx == @state.r
+        io << line[0, @state.c] << line[@state.c].colorize(fg).back(bg) << line[@state.c + 1..] << '\n'
+      else
+        io << line << '\n'
+      end
+    end
+    "#{io}"
   end
 
   def error(reason : String)
-    abort "ERROR: #{reason} at #{@state.r + 1}:#{@state.c}"
+    if @show_error_location
+      STDERR.puts "error:".colorize(:red)
+      STDERR.puts highlight_current(:black, :red)
+    end
+    abort "ERROR: #{reason} at #{@state.r + 1}:#{@state.c}".colorize(:red)
   end
 
   def parse_num
-    @state.step_right
-    closing_idx = @bytes[@state.r].index('\''.ord.to_u8, @state.c)
-    error "Unclosed number literal" if closing_idx.nil?
+    closing_idx = @bytes[@state.r].index('\''.ord.to_u8, @state.c + 1)
+    error("Number literal not closed") if closing_idx.nil?
     closing_idx = closing_idx.to_u16
-    literal_str = String.new(@bytes[@state.r][@state.c...closing_idx], "ASCII")
+    literal_str = String.new(@bytes[@state.r][@state.c + 1...closing_idx], "ASCII")
     begin
       num = literal_str.to_u16(whitespace: false, underscore: true, prefix: true, strict: true)
     rescue ArgumentError
-      error "Invalid number literal"
+      error("Invalid number literal '#{literal_str}'")
     end
     @state.c = closing_idx
     num
@@ -189,6 +208,12 @@ class Interpreter
 
   def toggle_mode(toggled : InterpreterMode)
     @mode = @mode == toggled ? InterpreterMode::Normal : toggled
+  end
+
+  def getcmd(instruction : UInt8)
+    @@cmds[instruction]
+  rescue KeyError
+    raise UnknownInstruction.new(instruction)
   end
 
   def self.cmd(v : Char, &block : StateChange)
@@ -211,7 +236,7 @@ class Interpreter
   cmd('D') { |st| st.step_down }                                          # DOWN
   cmd('u') { |st| st.true? ? st.step_up : st.step_right }                 # UP (conditional)
   cmd('d') { |st| st.true? ? st.step_down : st.step_right }               # DOWN (conditional)
-  cmd('x') { |st| abort if st.true? }                                     # exit
+  cmd('x') { |st| exit(0) if st.true? }                                   # exit
   cmd('p') { |st| st.stack_str(st.output) }                               # print entire stack as string
   cmd('P') { |st| st.output << '[' << st.stack.join(' ') << ']' }         # print entire stack as numbers
   cmd('#') { |st| st.output << st.topmost }                               # print last as number
