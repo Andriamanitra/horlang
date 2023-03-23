@@ -19,6 +19,7 @@ class ProgramState(T)
   def initialize
     @bool = true
     @stack = Deque(T).new(@@max_stack_size)
+    @input = STDIN
     @output = STDOUT
     @a = T.new(0)
     @b = T.new(1)
@@ -34,26 +35,30 @@ class ProgramState(T)
     @stack.pop { T.new(0) }
   end
 
-  def print(x)
-    @output << x
+  def topmost
+    @stack.last? || T.new(0)
   end
 
-  def print_stack
+  def stack_str(io : IO)
     @stack.each do |v|
-      @output << v.chr
+      io << v.chr
     end
   end
 
-  def print_stack_nums
-    @output << '[' << @stack.join(' ') << ']'
+  def open_file
+    fname = IO::Memory.new
+    stack_str(fname)
+    @input = File.open(fname.rewind.gets_to_end)
   end
 
-  def print_last_num
-    @output << (@stack.last? || T.new(0))
+  def close_file
+    @input.close unless @input.tty?
+    @input = STDIN
   end
 
-  def print_last_char
-    @output << (@stack.last? || T.new(0)).chr
+  def read_byte
+    byte = @input.read_byte
+    @stack.push(T.new(byte)) unless byte.nil?
   end
 
   def step_right
@@ -181,43 +186,42 @@ class Interpreter
     @mode = @mode == toggled ? InterpreterMode::Normal : toggled
   end
 
-  def output
-    @output
-  end
-
   def self.cmd(v : Char, &block : StateChange)
     @@cmds[v.ord.to_u8] = block
   end
 
-  cmd('A') { |state| state.a = state.pop }                              # set A
-  cmd('a') { |state| state.push(state.a) }                              # push A
-  cmd('B') { |state| state.b = state.pop }                              # set B
-  cmd('b') { |state| state.push(state.b) }                              # push B
-  cmd('R') { |state| state.r = state.pop }                              # set ROW
-  cmd('r') { |state| state.push(state.r) }                              # push ROW
-  cmd('C') { |state| state.c = state.pop }                              # set COL
-  cmd('c') { |state| state.push(state.c) }                              # push COL
-  cmd('?') { |state| state.truthy = (state.pop != 0) }                  # set TRUTHY
-  cmd('z') { |state| state.clear_stack }                                # clear stack
-  cmd('U') { |state| state.step_up }                                    # UP
-  cmd('D') { |state| state.step_down }                                  # DOWN
-  cmd('u') { |state| state.true? ? state.step_up : state.step_right }   # UP (conditional)
-  cmd('d') { |state| state.true? ? state.step_down : state.step_right } # DOWN (conditional)
-  cmd('x') { |state| abort if state.true? }                             # exit
-  cmd('p') { |state| state.print_stack }                                # print entire stack as string
-  cmd('P') { |state| state.print_stack_nums }                           # print entire stack as numbers
-  cmd('#') { |state| state.print_last_num }                             # print last as number
-  cmd('.') { |state| state.print_last_char }                            # print last as char
-  cmd(',') { |state| state.print(" ") }                                 # print a space
-  cmd(';') { |state| state.print("\n") }                                # print a newline
-  cmd('+') { |state| state.push(state.pop &+ state.pop) }               # ADD (wrapping)
-  cmd('-') { |state| state.push(state.pop &- state.pop) }               # SUB (wrapping)
-  cmd('*') { |state| state.push(state.pop &* state.pop) }               # MUL (wrapping)
-  cmd('/') { |state| state.push(state.pop // state.pop) }               # DIV
-  cmd('%') { |state| state.push(state.pop % state.pop) }                # MOD
-  cmd('=') { |state| state.push((state.pop == state.pop).to_u16) }      # EQUALS
-  cmd('<') { |state| state.push((state.pop < state.pop).to_u16) }       # LESS THAN
-  cmd('>') { |state| state.push((state.pop > state.pop).to_u16) }       # GREATER THAN
+  cmd('A') { |state| state.a = state.pop }                                 # set A
+  cmd('a') { |state| state.push(state.a) }                                 # push A
+  cmd('B') { |state| state.b = state.pop }                                 # set B
+  cmd('b') { |state| state.push(state.b) }                                 # push B
+  cmd('R') { |state| state.r = state.pop }                                 # set ROW
+  cmd('r') { |state| state.push(state.r) }                                 # push ROW
+  cmd('C') { |state| state.c = state.pop }                                 # set COL
+  cmd('c') { |state| state.push(state.c) }                                 # push COL
+  cmd('?') { |state| state.truthy = (state.pop != 0) }                     # set TRUTHY
+  cmd('z') { |state| state.clear_stack }                                   # clear stack
+  cmd('U') { |state| state.step_up }                                       # UP
+  cmd('D') { |state| state.step_down }                                     # DOWN
+  cmd('u') { |state| state.true? ? state.step_up : state.step_right }      # UP (conditional)
+  cmd('d') { |state| state.true? ? state.step_down : state.step_right }    # DOWN (conditional)
+  cmd('x') { |state| abort if state.true? }                                # exit
+  cmd('p') { |state| state.stack_str(state.output) }                       # print entire stack as string
+  cmd('P') { |state| state.output << '[' << state.stack.join(' ') << ']' } # print entire stack as numbers
+  cmd('#') { |state| state.output << state.topmost }                       # print last as number
+  cmd('.') { |state| state.output << state.topmost.chr }                   # print last as char
+  cmd(',') { |state| state.output << ' ' }                                 # print a space
+  cmd(';') { |state| state.output << '\n' }                                # print a newline
+  cmd('+') { |state| state.push(state.pop &+ state.pop) }                  # ADD (wrapping)
+  cmd('-') { |state| state.push(state.pop &- state.pop) }                  # SUB (wrapping)
+  cmd('*') { |state| state.push(state.pop &* state.pop) }                  # MUL (wrapping)
+  cmd('/') { |state| state.push(state.pop // state.pop) }                  # DIV
+  cmd('%') { |state| state.push(state.pop % state.pop) }                   # MOD
+  cmd('=') { |state| state.push((state.pop == state.pop).to_u16) }         # EQUALS
+  cmd('<') { |state| state.push((state.pop < state.pop).to_u16) }          # LESS THAN
+  cmd('>') { |state| state.push((state.pop > state.pop).to_u16) }          # GREATER THAN
+  cmd('F') { |state| state.open_file }                                     # OPEN FILE
+  cmd('f') { |state| state.close_file }                                    # CLOSE FILE
+  cmd('g') { |state| state.read_byte }                                     # GETCHAR
   (0_u16..9_u16).each do |num|
     cmd(num.to_s[0]) { |state| state.push(num) }
   end

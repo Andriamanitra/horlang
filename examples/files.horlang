@@ -1,0 +1,5 @@
+dumb program that asks for a filename and prints its contents
+'10'B "filename? "pz  D
+read a filename:       gA ab=? d a'23'C
+read lines from file:          ;FzgA aab=?d          '34'C
+print line, repeat if needed:             pz gA aa0<?u f; x
